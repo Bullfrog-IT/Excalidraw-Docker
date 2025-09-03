@@ -1,43 +1,103 @@
 services:
-  excalidraw:
-    image: excalidraw/excalidraw:latest
-    healthcheck:
-      disable: true
+  nginx:
+    image: nginx:alpine
+    container_name: excalidraw-nginx
     ports:
-      - "3001:80"
-    environment:
-      BACKEND_V2_GET_URL: http://localhost:8080/api/v2/scenes/
-      BACKEND_V2_POST_URL: http://localhost:8080/api/v2/scenes/
-      LIBRARY_URL: https://libraries.excalidraw.com
-      LIBRARY_BACKEND: https://us-central1-excalidraw-room-persistence.cloudfunctions.net/libraries
-      SOCKET_SERVER_URL: http://localhost:5000/
-      STORAGE_BACKEND: "http"
-      HTTP_STORAGE_BACKEND_URL: "http://localhost:8080/api/v2"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/sites:/etc/nginx/conf.d:ro
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+      - certbot-certs:/etc/nginx/ssl:ro
+      - certbot-www:/var/www/certbot:ro
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      - excalidraw
+      - excalidraw-storage-backend
+      - excalidraw-room
     networks:
       - excalidraw-net
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot:latest
+    container_name: excalidraw-certbot
+    volumes:
+      - certbot-certs:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    command: certonly --webroot --webroot-path=/var/www/certbot --email your-email@example.com --agree-tos --no-eff-email -d draw.mkcoop.com
+    depends_on:
+      - nginx
+    networks:
+      - excalidraw-net
+
+  # Renewal service for certificates
+  certbot-renew:
+    image: certbot/certbot:latest
+    container_name: excalidraw-certbot-renew
+    volumes:
+      - certbot-certs:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    command: renew --webroot --webroot-path=/var/www/certbot
+    profiles:
+      - renewal
+    networks:
+      - excalidraw-net
+
+  excalidraw:
+    image: excalidraw/excalidraw:latest
+    container_name: excalidraw-app
+    healthcheck:
+      disable: true
+    expose:
+      - "80"
+    environment:
+      BACKEND_V2_GET_URL: https://draw.mkcoop.com/api/v2/scenes/
+      BACKEND_V2_POST_URL: https://draw.mkcoop.com/api/v2/scenes/
+      LIBRARY_URL: https://libraries.excalidraw.com
+      LIBRARY_BACKEND: https://us-central1-excalidraw-room-persistence.cloudfunctions.net/libraries
+      SOCKET_SERVER_URL: https://draw.mkcoop.com/
+      STORAGE_BACKEND: "http"
+      HTTP_STORAGE_BACKEND_URL: "https://draw.mkcoop.com/api/v2"
+    networks:
+      - excalidraw-net
+    restart: unless-stopped
 
   excalidraw-storage-backend:
     image: kiliandeca/excalidraw-storage-backend
-    ports:
-      - "8080:8080"
+    container_name: excalidraw-storage
+    expose:
+      - "8080"
     environment:
       STORAGE_URI: redis://redis:6379
+    depends_on:
+      - redis
     networks:
       - excalidraw-net
+    restart: unless-stopped
 
   excalidraw-room:
     image: excalidraw/excalidraw-room
-    ports:
-      - "5000:80"
+    container_name: excalidraw-room
+    expose:
+      - "80"
     networks:
       - excalidraw-net
+    restart: unless-stopped
 
   redis:
-    image: redis
+    image: redis:alpine
+    container_name: excalidraw-redis
     expose:
       - "6379"
     networks:
       - excalidraw-net
+    restart: unless-stopped
+
+volumes:
+  certbot-certs:
+  certbot-www:
 
 networks:
   excalidraw-net:
