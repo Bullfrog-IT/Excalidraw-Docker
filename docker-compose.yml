@@ -1,50 +1,4 @@
 services:
-  nginx:
-    image: nginx:alpine
-    container_name: excalidraw-nginx
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/sites:/etc/nginx/conf.d:ro
-      - ./nginx/snippets:/etc/nginx/snippets:ro
-      - certbot-certs:/etc/nginx/ssl:ro
-      - certbot-www:/var/www/certbot:ro
-      - ./nginx/logs:/var/log/nginx
-    depends_on:
-      - excalidraw
-      - excalidraw-storage-backend
-      - excalidraw-room
-    networks:
-      - excalidraw-net
-    restart: unless-stopped
-
-  certbot:
-    image: certbot/certbot:latest
-    container_name: excalidraw-certbot
-    volumes:
-      - certbot-certs:/etc/letsencrypt
-      - certbot-www:/var/www/certbot
-    command: certonly --webroot --webroot-path=/var/www/certbot --email your-email@example.com --agree-tos --no-eff-email -d draw.mkcoop.com
-    depends_on:
-      - nginx
-    networks:
-      - excalidraw-net
-
-  # Renewal service for certificates
-  certbot-renew:
-    image: certbot/certbot:latest
-    container_name: excalidraw-certbot-renew
-    volumes:
-      - certbot-certs:/etc/letsencrypt
-      - certbot-www:/var/www/certbot
-    command: renew --webroot --webroot-path=/var/www/certbot
-    profiles:
-      - renewal
-    networks:
-      - excalidraw-net
-
   excalidraw:
     image: excalidraw/excalidraw:latest
     container_name: excalidraw-app
@@ -53,13 +7,13 @@ services:
     expose:
       - "80"
     environment:
-      BACKEND_V2_GET_URL: https://draw.mkcoop.com/api/v2/scenes/
-      BACKEND_V2_POST_URL: https://draw.mkcoop.com/api/v2/scenes/
+      BACKEND_V2_GET_URL: https://draw.homiecule.love/api/v2/scenes/
+      BACKEND_V2_POST_URL: https://draw.homiecule.love/api/v2/scenes/
       LIBRARY_URL: https://libraries.excalidraw.com
       LIBRARY_BACKEND: https://us-central1-excalidraw-room-persistence.cloudfunctions.net/libraries
-      SOCKET_SERVER_URL: https://draw.mkcoop.com/
+      SOCKET_SERVER_URL: https://draw.homiecule.love/
       STORAGE_BACKEND: "http"
-      HTTP_STORAGE_BACKEND_URL: "https://draw.mkcoop.com/api/v2"
+      HTTP_STORAGE_BACKEND_URL: "https://draw.homiecule.love/api/v2"
     networks:
       - excalidraw-net
     restart: unless-stopped
@@ -95,10 +49,34 @@ services:
       - excalidraw-net
     restart: unless-stopped
 
-volumes:
-  certbot-certs:
-  certbot-www:
+  nginx:
+    image: nginx:alpine
+    container_name: excalidraw-nginx
+    volumes:
+      - ./nginx/sites:/etc/nginx/conf.d
+      - ./nginx/snippets:/etc/nginx/snippets
+    ports:
+      - "8080:80"
+    depends_on:
+      - excalidraw
+      - excalidraw-storage-backend
+      - excalidraw-room
+    networks:
+      - excalidraw-net
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: excalidraw-cloudflared
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - nginx
+    networks:
+      - excalidraw-net
+    restart: unless-stopped
 
 networks:
   excalidraw-net:
-    external: true
+    driver: bridge
